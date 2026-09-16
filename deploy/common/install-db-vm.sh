@@ -28,6 +28,12 @@ sudo -u postgres psql -c "CREATE DATABASE cloudlab OWNER cloudlab;"
 sudo -u postgres psql -d cloudlab -v ON_ERROR_STOP=1 -f "$(dirname "$0")/../../db/schema.sql" \
   || echo "NOTE: copy db/schema.sql to this host and load it as the cloudlab role if this step failed."
 
+# Owning the DATABASE (above) doesn't make cloudlab own objects created
+# inside it — schema.sql ran as the postgres superuser, so it owns the
+# table/sequence unless explicitly granted away here.
+sudo -u postgres psql -d cloudlab -c \
+  "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO cloudlab; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO cloudlab;"
+
 # Listen only on loopback + this VM's private IP — not every interface,
 # in case the VM ever picks up a public one.
 sed -i "s/^#listen_addresses.*/listen_addresses = 'localhost,${PRIVATE_IP}'/" "${PG_CONF_DIR}/postgresql.conf"

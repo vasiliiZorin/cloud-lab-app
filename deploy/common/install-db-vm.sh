@@ -18,8 +18,12 @@ PG_CONF_DIR="/etc/postgresql/${PG_VERSION}/main"
 
 # Pass the password as a psql variable rather than interpolating it into
 # the SQL text, so quotes/backslashes in DB_PASSWORD can't break the
-# statement (or, worse, get interpreted as SQL).
-sudo -u postgres psql -v pw="$DB_PASSWORD" -c "CREATE ROLE cloudlab WITH LOGIN PASSWORD :'pw';"
+# statement (or, worse, get interpreted as SQL). This has to go through
+# stdin, not -c — psql only does :'var' substitution when reading a
+# script, not for a -c command string.
+sudo -u postgres psql -v pw="$DB_PASSWORD" <<'SQL'
+CREATE ROLE cloudlab WITH LOGIN PASSWORD :'pw';
+SQL
 sudo -u postgres psql -c "CREATE DATABASE cloudlab OWNER cloudlab;"
 sudo -u postgres psql -d cloudlab -v ON_ERROR_STOP=1 -f "$(dirname "$0")/../../db/schema.sql" \
   || echo "NOTE: copy db/schema.sql to this host and load it as the cloudlab role if this step failed."

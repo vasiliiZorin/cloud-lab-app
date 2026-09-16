@@ -133,7 +133,7 @@ resource "azurerm_redis_cache" "cache" {
   capacity              = 0
   family                = "C"
   sku_name              = "Basic"
-  non_ssl_port_enabled  = true
+  non_ssl_port_enabled  = false
   minimum_tls_version   = "1.2"
 }
 
@@ -187,8 +187,9 @@ resource "azurerm_linux_virtual_machine" "app" {
           PGDATABASE=cloudlab
           PGSSLMODE=require
           REDIS_HOST=${azurerm_redis_cache.cache.hostname}
-          REDIS_PORT=6379
+          REDIS_PORT=${azurerm_redis_cache.cache.ssl_port}
           REDIS_PASSWORD=${azurerm_redis_cache.cache.primary_access_key}
+          REDIS_TLS=true
     runcmd:
       - [ bash, -c, "apt-get install -y git postgresql-client && git clone ${var.app_git_repo} /opt/cloud-lab-app" ]
       - [ bash, -c, "cp /opt/cloud-lab-app-env/.env /opt/cloud-lab-app/.env" ]

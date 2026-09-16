@@ -11,6 +11,28 @@ Azure Database for PostgreSQL **requires TLS by default**; the app already
 handles that (`PGSSLMODE=require` is set in this VM's `.env`, which makes
 `server/db.js` request TLS — see [db.js](../../server/db.js)).
 
+## Security posture
+
+- **Postgres**: not just relying on TLS — `azurerm_postgresql_flexible_server_firewall_rule`
+  allow-lists only the app VM's public IP, so nothing else can even attempt
+  a connection. TLS on top of that protects the traffic on the wire.
+- **Redis**: `non_ssl_port_enabled = false`, so the plaintext port 6379
+  is off entirely — the app connects on the SSL port with `REDIS_TLS=true`
+  (see [cache.js](../../server/cache.js)), authenticated with Azure's
+  `primary_access_key`, on top of the same IP allow-list as Postgres.
+- **VM**: `disable_password_authentication = true` — SSH key only, no
+  password login possible even if someone got the admin username right.
+  Only ports 22 (from your IP) and 3000 (public) are open via the NSG.
+
+What's still a lab-grade shortcut: `custom_data` embeds `db_password` and
+the Redis access key in plaintext, visible via the Azure portal/CLI and
+in `/var/log/cloud-init-output.log` on the VM. Fine for a throwaway lab;
+use Key Vault + a managed identity for anything real. The app also
+doesn't validate the Postgres/Redis TLS certificate
+(`rejectUnauthorized: false`) — you still get encryption in transit, just
+not certificate-pinned protection against a man-in-the-middle between the
+VM and Azure's managed services.
+
 ## Prerequisites
 
 - An Azure account, logged in locally: `az login`.
@@ -52,11 +74,6 @@ Resource names for the Postgres server and Redis cache must be globally
 unique across Azure, so this config suffixes them with a random hex string
 (`random_id` provider) — check `terraform plan` output if you want to see
 the actual generated names before creating anything.
-
-Also note: `custom_data` embeds `db_password` and the Redis access key in
-plaintext, visible via the Azure portal/CLI and in
-`/var/log/cloud-init-output.log` on the VM. Fine for a throwaway lab; use
-Key Vault + a managed identity for anything real.
 
 ## Tear down
 

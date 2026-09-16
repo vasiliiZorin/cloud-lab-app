@@ -10,8 +10,21 @@ EnvironmentFile=/opt/cloud-lab-app/.env
 ExecStart=/usr/bin/node server/index.js
 Restart=on-failure
 RestartSec=3
+
+# The app never writes to disk (state lives in Postgres/Redis) and needs
+# no elevated privileges — lock the process down accordingly.
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target

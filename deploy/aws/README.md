@@ -24,8 +24,8 @@ have one (some older accounts don't, or you deleted it), create it first:
 | Resource | Size | Approx. cost while running |
 |---|---|---|
 | EC2 instance (app) | t3.micro | ~$0.01/hr (free tier eligible) |
-| RDS PostgreSQL (db) | db.t3.micro, 20GB | ~$0.02/hr + storage (free tier eligible for 12mo) |
-| ElastiCache Redis (cache) | cache.t3.micro | ~$0.02/hr (not free-tier) |
+| RDS PostgreSQL (db), encrypted at rest | db.t3.micro, 20GB | ~$0.02/hr + storage (free tier eligible for 12mo) |
+| ElastiCache Redis (cache), AUTH + TLS | cache.t3.micro replication group | ~$0.02/hr (not free-tier) |
 
 None of this is free forever — **`terraform destroy` when you're done** or
 you'll keep paying. RDS and ElastiCache are the ones people forget about.
@@ -35,7 +35,7 @@ you'll keep paying. RDS and ElastiCache are the ones people forget about.
 ```bash
 cd deploy/aws
 cp terraform.tfvars.example terraform.tfvars
-# edit: region, key_pair_name, admin_ssh_cidr, db_password, app_git_repo
+# edit: region, key_pair_name, admin_ssh_cidr, db_password, redis_password, app_git_repo
 
 terraform init
 terraform plan     # review what will be created and confirm the region/cost
@@ -52,18 +52,35 @@ The `.env` on the app instance is written by `user_data` at boot, pointing
 both created and torn down by this same Terraform, so there's no manual
 wiring step like there is on Acronis.
 
-Note: the ElastiCache cluster here has **no AUTH password** — plain
-`aws_elasticache_cluster` doesn't support it (you'd need an
-`aws_elasticache_replication_group` with transit encryption for that).
-Network isolation (security group: only the app tier can reach it) is the
-only thing standing between the internet and Redis, which is the AWS
-default posture for a lab like this — don't reuse this for anything with
-real data without adding a replication group + AUTH token.
+## Security posture
 
-Also note: `user_data` embeds `db_password` in plaintext (visible via the
+- **RDS**: not publicly accessible (`publicly_accessible = false`), only
+  reachable from the app tier's security group, encrypted at rest
+  (`storage_encrypted = true`), and the app connects with
+  `PGSSLMODE=require` (encrypted in transit).
+- **ElastiCache**: this uses `aws_elasticache_replication_group`, not the
+  simpler `aws_elasticache_cluster` — the plain cluster resource has no
+  AUTH/encryption option at all. The replication group requires an
+  `auth_token` (password) and `transit_encryption_enabled = true`, so
+  Redis is both authenticated and TLS-encrypted, on top of the same
+  network isolation (security group: only the app tier can reach it).
+- **EC2**: only ports 22 (from your IP) and 3000 (public, since it's the
+  app's front door) are open; the root volume is encrypted
+  (`root_block_device.encrypted = true`); IMDSv2 is required
+  (`metadata_options.http_tokens = "required"`), which closes off the
+  classic SSRF-to-instance-credentials path some Metadata Service v1
+  vulnerabilities relied on.
+
+What's still a lab-grade shortcut, not a production posture: `user_data`
+embeds `db_password` and `redis_password` in plaintext (visible via the
 EC2 console/API and in `/var/log/cloud-init-output.log` on the instance).
 Fine for a throwaway lab; use Secrets Manager + an IAM instance role for
-anything real.
+anything real. The app also doesn't validate the RDS/ElastiCache TLS
+certificate (`rejectUnauthorized: false` in [server/db.js](../../server/db.js) /
+[server/cache.js](../../server/cache.js)) — it still gets you encryption
+in transit, just not certificate-pinned protection against a
+man-in-the-middle inside your own VPC, which is a narrow threat model to
+begin with.
 
 ## Tear down
 

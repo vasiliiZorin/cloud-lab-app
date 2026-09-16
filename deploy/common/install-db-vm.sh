@@ -3,9 +3,10 @@
 # installs PostgreSQL, creates the app role/database, loads the schema,
 # and opens it to connections from the app-tier's private IP only.
 #
-# Usage: APP_TIER_CIDR=10.0.0.0/24 DB_PASSWORD=... ./install-db-vm.sh
+# Usage: PRIVATE_IP=10.0.1.10 APP_TIER_CIDR=10.0.1.15/32 DB_PASSWORD=... ./install-db-vm.sh
 set -euo pipefail
 
+PRIVATE_IP="${PRIVATE_IP:?set PRIVATE_IP to this VM's own private IP}"
 APP_TIER_CIDR="${APP_TIER_CIDR:?set APP_TIER_CIDR to the app VM's private IP or subnet, e.g. 10.0.1.15/32}"
 DB_PASSWORD="${DB_PASSWORD:?set DB_PASSWORD}"
 
@@ -15,13 +16,17 @@ apt-get install -y postgresql
 PG_VERSION=$(psql -V | grep -oE '[0-9]+' | head -1)
 PG_CONF_DIR="/etc/postgresql/${PG_VERSION}/main"
 
-sudo -u postgres psql -c "CREATE ROLE cloudlab WITH LOGIN PASSWORD '${DB_PASSWORD}';"
+# Pass the password as a psql variable rather than interpolating it into
+# the SQL text, so quotes/backslashes in DB_PASSWORD can't break the
+# statement (or, worse, get interpreted as SQL).
+sudo -u postgres psql -v pw="$DB_PASSWORD" -c "CREATE ROLE cloudlab WITH LOGIN PASSWORD :'pw';"
 sudo -u postgres psql -c "CREATE DATABASE cloudlab OWNER cloudlab;"
 sudo -u postgres psql -d cloudlab -v ON_ERROR_STOP=1 -f "$(dirname "$0")/../../db/schema.sql" \
   || echo "NOTE: copy db/schema.sql to this host and load it as the cloudlab role if this step failed."
 
-# Listen on the private network interface, not just localhost.
-sed -i "s/^#listen_addresses.*/listen_addresses = '*'/" "${PG_CONF_DIR}/postgresql.conf"
+# Listen only on loopback + this VM's private IP — not every interface,
+# in case the VM ever picks up a public one.
+sed -i "s/^#listen_addresses.*/listen_addresses = 'localhost,${PRIVATE_IP}'/" "${PG_CONF_DIR}/postgresql.conf"
 
 # Only allow the app tier's CIDR in over the network; everything else stays
 # local-only. Plain "host" (not "hostssl") to match the app's pg client,

@@ -115,6 +115,7 @@ resource "aws_db_instance" "db" {
   engine_version         = "16"
   instance_class         = "db.t3.micro"
   allocated_storage      = 20
+  storage_encrypted      = true
   db_name                = "cloudlab"
   username               = "cloudlab"
   password               = var.db_password
@@ -130,15 +131,23 @@ resource "aws_elasticache_subnet_group" "cloud_lab" {
   subnet_ids = data.aws_subnets.default.ids
 }
 
-resource "aws_elasticache_cluster" "cache" {
-  cluster_id           = "cloud-lab-cache"
-  engine               = "redis"
-  engine_version       = "7.1"
-  node_type            = "cache.t3.micro"
-  num_cache_nodes      = 1
-  parameter_group_name = "default.redis7"
-  subnet_group_name    = aws_elasticache_subnet_group.cloud_lab.name
-  security_group_ids   = [aws_security_group.cache.id]
+# A replication group (rather than a plain elasticache_cluster) is what
+# lets ElastiCache require a password and encrypt traffic — a bare
+# aws_elasticache_cluster has neither option.
+resource "aws_elasticache_replication_group" "cache" {
+  replication_group_id       = "cloud-lab-cache"
+  description                = "cloud-lab-app cache tier"
+  engine                     = "redis"
+  engine_version             = "7.1"
+  node_type                  = "cache.t3.micro"
+  num_cache_clusters         = 1
+  automatic_failover_enabled = false
+  parameter_group_name       = "default.redis7"
+  subnet_group_name          = aws_elasticache_subnet_group.cloud_lab.name
+  security_group_ids         = [aws_security_group.cache.id]
+  transit_encryption_enabled = true
+  auth_token                 = var.redis_password
+  at_rest_encryption_enabled = true
 }
 
 # --- App tier: plain EC2 instance ----------------------------------------
@@ -150,6 +159,14 @@ resource "aws_instance" "app" {
   subnet_id                   = data.aws_subnets.default.ids[0]
   vpc_security_group_ids      = [aws_security_group.app.id]
   associate_public_ip_address = true
+
+  root_block_device {
+    encrypted = true
+  }
+
+  metadata_options {
+    http_tokens = "required" # require IMDSv2, block the classic SSRF-to-credentials path
+  }
 
   user_data = <<-EOF
     #cloud-config
@@ -163,13 +180,15 @@ resource "aws_instance" "app" {
           PGUSER=cloudlab
           PGPASSWORD=${var.db_password}
           PGDATABASE=cloudlab
-          REDIS_HOST=${aws_elasticache_cluster.cache.cache_nodes[0].address}
+          PGSSLMODE=require
+          REDIS_HOST=${aws_elasticache_replication_group.cache.primary_endpoint_address}
           REDIS_PORT=6379
-          REDIS_PASSWORD=
+          REDIS_PASSWORD=${var.redis_password}
+          REDIS_TLS=true
     runcmd:
       - [ bash, -c, "apt-get install -y git postgresql-client && git clone ${var.app_git_repo} /opt/cloud-lab-app" ]
       - [ bash, -c, "cp /opt/cloud-lab-app-env/.env /opt/cloud-lab-app/.env" ]
-      - [ bash, -c, "cd /opt/cloud-lab-app && psql \"postgresql://cloudlab:${var.db_password}@${aws_db_instance.db.address}:5432/cloudlab\" -f db/schema.sql || true" ]
+      - [ bash, -c, "cd /opt/cloud-lab-app && PGSSLMODE=require psql \"postgresql://cloudlab:${var.db_password}@${aws_db_instance.db.address}:5432/cloudlab\" -f db/schema.sql || true" ]
       - [ bash, -c, "bash /opt/cloud-lab-app/deploy/common/install-app-vm.sh" ]
   EOF
 
@@ -177,5 +196,5 @@ resource "aws_instance" "app" {
     Name = "cloud-lab-app"
   }
 
-  depends_on = [aws_db_instance.db, aws_elasticache_cluster.cache]
+  depends_on = [aws_db_instance.db, aws_elasticache_replication_group.cache]
 }

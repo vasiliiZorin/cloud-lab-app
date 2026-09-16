@@ -24,6 +24,12 @@ variable "db_password" {
   sensitive   = true
 }
 
+variable "redis_password" {
+  description = "ElastiCache AUTH token. Must be 16-128 chars, no spaces or these characters: / @ \" (AWS's own auth_token constraint)."
+  type        = string
+  sensitive   = true
+}
+
 variable "app_git_repo" {
   description = "Git URL the app instance clones on first boot"
   type        = string

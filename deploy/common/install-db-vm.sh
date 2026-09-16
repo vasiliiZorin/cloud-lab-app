@@ -6,8 +6,8 @@
 # Usage: PRIVATE_IP=10.0.1.10 APP_TIER_CIDR=10.0.1.15/32 DB_PASSWORD=... ./install-db-vm.sh
 set -euo pipefail
 
-PRIVATE_IP="${PRIVATE_IP:?set PRIVATE_IP to this VM's own private IP}"
-APP_TIER_CIDR="${APP_TIER_CIDR:?set APP_TIER_CIDR to the app VM's private IP or subnet, e.g. 10.0.1.15/32}"
+PRIVATE_IP="${PRIVATE_IP:?set PRIVATE_IP to this VMs own private IP}"
+APP_TIER_CIDR="${APP_TIER_CIDR:?set APP_TIER_CIDR to the app VMs private IP or subnet, e.g. 10.0.1.15/32}"
 DB_PASSWORD="${DB_PASSWORD:?set DB_PASSWORD}"
 
 apt-get update -y

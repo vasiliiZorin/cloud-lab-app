@@ -5,7 +5,7 @@
 # Usage: PRIVATE_IP=10.0.1.20 REDIS_PASSWORD=... ./install-cache-vm.sh
 set -euo pipefail
 
-PRIVATE_IP="${PRIVATE_IP:?set PRIVATE_IP to this VM's private IP}"
+PRIVATE_IP="${PRIVATE_IP:?set PRIVATE_IP to this VMs private IP}"
 REDIS_PASSWORD="${REDIS_PASSWORD:?set REDIS_PASSWORD}"
 
 apt-get update -y

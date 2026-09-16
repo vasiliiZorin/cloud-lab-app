@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars and fill in. Never commit terraform.tfvars —
+# it holds passwords. (.gitignore already excludes it.)
+
+image_name             = "Ubuntu 22.04"   # check: openstack image list
+flavor_name             = "m1.small"       # check: openstack flavor list
+external_network_name   = "public"          # check: openstack network list --external
+ssh_keypair_name        = "my-laptop-key"   # check: openstack keypair list
+admin_ssh_cidr           = "203.0.113.4/32" # your current public IP + /32
+db_password              = "change-me-to-something-long"
+redis_password           = "change-me-to-something-long"
+app_git_repo             = "https://github.com/<you>/cloud-lab-app.git"

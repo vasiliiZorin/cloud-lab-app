@@ -1,0 +1,10 @@
+node_modules/
+.env
+*.log
+
+# Terraform (all deploy/<provider>/ dirs) — state and vars can contain secrets/IPs
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfvars
+**/*.tfstate
+**/*.tfstate.backup

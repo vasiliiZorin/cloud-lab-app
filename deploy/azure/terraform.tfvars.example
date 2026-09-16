@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars and fill in. Never commit terraform.tfvars.
+
+location            = "eastus"
+vm_size              = "Standard_B1s"
+ssh_public_key_path  = "~/.ssh/id_rsa.pub"
+admin_ssh_cidr       = "203.0.113.4/32"   # your current public IP + /32
+db_password          = "change-me-to-something-long"
+app_git_repo         = "https://github.com/<you>/cloud-lab-app.git"

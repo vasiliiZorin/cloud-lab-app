@@ -23,7 +23,10 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 RestrictNamespaces=true
 LockPersonality=true
-MemoryDenyWriteExecute=true
+# NOT MemoryDenyWriteExecute — Node's V8 engine needs writable+executable
+# memory to JIT-compile JavaScript; this directive seccomp-blocks that and
+# crashes the process (SIGTRAP) on startup. Incompatible with any
+# JIT-based runtime (Node, Java, .NET, ...), not just a lab-specific issue.
 CapabilityBoundingSet=
 
 [Install]

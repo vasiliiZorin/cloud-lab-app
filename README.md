@@ -60,16 +60,16 @@ and cache tiers — that contrast is the point:
 
 | Provider | App server | Database | Cache | Notes |
 |---|---|---|---|---|
-| [Acronis Cyber Frame Cloud](deploy/acronis/) | VM | VM (self-hosted Postgres) | VM (self-hosted Redis) | Pure IaaS — OpenStack-compatible API, no managed DB/cache service, so all three tiers are VMs you provision and patch yourself |
-| [AWS](deploy/aws/) | EC2 | RDS (managed Postgres) | ElastiCache (managed Redis) | Compute vs. managed-service split is explicit |
-| [Azure](deploy/azure/) | VM | Azure Database for PostgreSQL (Flexible Server) | Azure Cache for Redis | Same split, Azure's naming |
+| [Acronis Cyber Frame Cloud](deploy/acronis/README.md) | VM | VM (self-hosted Postgres) | VM (self-hosted Redis) | Pure IaaS, provisioned manually (portal + SSH) — no usable API/Terraform path yet |
+| [AWS](deploy/aws/README.md) | EC2 | RDS (managed Postgres) | ElastiCache (managed Redis) | Compute vs. managed-service split is explicit; provisioned with Terraform |
+| [Azure](deploy/azure/README.md) | VM | Azure Database for PostgreSQL (Flexible Server) | Azure Cache for Redis | Same split, Azure's naming; provisioned with Terraform |
 
-Each `deploy/<provider>/` folder has Terraform (or scripts) plus a README
-with the manual steps, required credentials, and — importantly — **what it
-will cost and how to tear it down**. Nothing in this repo provisions
-anything by itself; you run `terraform apply` (or the portal steps)
-yourself after reviewing the plan.
+Each `deploy/<provider>/` folder has a README with the required steps,
+credentials, and — importantly — **what it will cost and how to tear it
+down**. AWS and Azure use Terraform (`terraform apply` after reviewing the
+plan); Acronis is manual portal + SSH steps, since Terraform isn't an
+option there yet. Nothing in this repo provisions anything by itself.
 
 Start with whichever provider you have an account on. `deploy/README.md`
-has the shared concepts (security groups vs NSGs vs OpenStack secgroups,
-etc.) so you're not re-learning them three times.
+has the shared concepts (security groups vs NSGs vs Cyber Frame's firewall
+rules, etc.) so you're not re-learning them three times.

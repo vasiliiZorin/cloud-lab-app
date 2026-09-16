@@ -10,12 +10,12 @@ Every provider gives you a way to say "only let traffic from X reach this
 thing." That's the mechanism keeping the db/cache tiers off the public
 internet in every one of these deployments.
 
-| Concept | Acronis Cyber Frame (OpenStack) | AWS | Azure |
+| Concept | Acronis Cyber Frame Cloud | AWS | Azure |
 |---|---|---|---|
-| Firewall attached to a VM/service | Security Group | Security Group | Network Security Group (NSG) |
-| Isolated network | Network + Subnet | VPC + Subnet | Virtual Network (VNet) + Subnet |
-| Public IP | Floating IP | Elastic IP / public IP | Public IP |
-| "Only the app tier can reach the db" | secgroup rule scoped to the subnet CIDR | secgroup rule scoped to another security group | NSG rule / firewall rule scoped to an IP |
+| Firewall attached to a VM/service | Security group / firewall rule (portal) | Security Group | Network Security Group (NSG) |
+| Isolated network | Private network (portal) | VPC + Subnet | Virtual Network (VNet) + Subnet |
+| Public IP | Floating/public IP (portal) | Elastic IP / public IP | Public IP |
+| "Only the app tier can reach the db" | rule scoped to the app VM's private IP | secgroup rule scoped to another security group | NSG rule / firewall rule scoped to an IP |
 
 ## IaaS vs. managed service — the actual point of this lab
 
@@ -31,6 +31,10 @@ internet in every one of these deployments.
 Deploying literally the same app three ways is the fastest way to feel that
 difference — on Acronis you'll `ssh` into a db VM and run `apt install
 postgresql`; on AWS/Azure you'll never see the machine Postgres runs on.
+It also means the Acronis deploy is manual (portal clicks + SSH, see
+[deploy/acronis/README.md](acronis/README.md)) while AWS/Azure are
+Terraform — Cyber Frame Cloud doesn't have a usable API/Terraform provider
+yet.
 
 ## Health checks and load balancers
 
@@ -43,10 +47,11 @@ instances.
 
 ## Secrets, honestly
 
-None of these Terraform configs use a secrets manager — passwords go into
-`terraform.tfvars` (gitignored) and get written into each VM's
-cloud-init `user_data`/`custom_data`, which is visible in plaintext via
-each provider's console/API and in the instance's boot log. That's a
-reasonable simplification for a personal lab you'll tear down; it is not
-how you'd do this for anything with real users or data (that's what AWS
-Secrets Manager, Azure Key Vault, and OpenStack Barbican are for).
+None of this uses a secrets manager. On AWS/Azure, passwords go into
+`terraform.tfvars` (gitignored) and get written into each VM's cloud-init
+`user_data`/`custom_data`, visible in plaintext via the console/API and
+the instance's boot log. On Acronis they're just typed over SSH into
+`.env` and the install scripts' env vars. That's a reasonable
+simplification for a personal lab you'll tear down; it is not how you'd do
+this for anything with real users or data (that's what AWS Secrets
+Manager and Azure Key Vault are for).

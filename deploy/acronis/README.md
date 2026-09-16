@@ -1,76 +1,92 @@
-# Deploying to Acronis Cyber Frame Cloud
+# Deploying to Acronis Cyber Frame Cloud (manual)
 
-Cyber Frame Cloud is **pure IaaS**: VMs, networks, floating IPs, security
-groups. There is no managed Postgres or Redis service to reach for, so all
-three tiers here are VMs you provision and patch yourself — that's the
-whole point of including this provider in the lab.
+Cyber Frame Cloud doesn't expose a usable API/Terraform path yet, so this
+is a manual, portal + SSH deployment — no IaC here, unlike the
+[AWS](../aws/) and [Azure](../azure/) folders. That's fine: it's still the
+same three-tier shape, and it's arguably more honest about what "IaaS"
+meant before every provider had a Terraform provider.
 
-Cyber Frame is built on OpenStack (via Virtuozzo) and exposes an
-**OpenStack-compatible API**, so it's provisioned with the standard
-[`terraform-provider-openstack/openstack`](https://registry.terraform.io/providers/terraform-provider-openstack/openstack)
-provider rather than a bespoke one. Terraform-wise this deploys the same way
-you'd deploy to any OpenStack private cloud.
+The [`deploy/common/`](../common) scripts do the actual provisioning work
+(install Postgres/Redis/Node, write the systemd unit, open the right
+ports) — you're just running them over SSH instead of via `user_data`.
 
-## Prerequisites
+## 1. Create three VMs in the Cyber Frame Cloud portal
 
-1. An Acronis Cyber Frame Cloud tenant/project. If you already have
-   Acronis-related credentials in your environment (the account referenced
-   by your local `acronis-reregister.sh` is for Acronis Cyber Protect agent
-   registration — a different product/token; you'll need separate Cyber
-   Frame Cloud IaaS project credentials).
-2. From the Cyber Frame Cloud portal: an `openrc.sh`-style credentials file
-   (OpenStack auth URL, project/tenant, username/password or application
-   credential, region). Acronis's IaaS onboarding docs show where to
-   download this per-project.
-3. Terraform >= 1.5, and the OpenStack CLI (`pip install python-openstackclient`)
-   is handy for poking around before committing to Terraform.
+App, db, cache — one VM each, Ubuntu 22.04 or 24.04, smallest size that's
+available (this app is tiny; 1 vCPU / 1-2GB RAM is plenty for all three).
+Put them on the same private network if the portal lets you choose one.
 
-```bash
-source openrc.sh   # sets OS_AUTH_URL, OS_PROJECT_NAME, OS_USERNAME, OS_PASSWORD, OS_REGION_NAME...
-openstack image list      # sanity check: can we reach the API?
-openstack network list
-```
+Note each VM's **private IP** (and, for the app VM, its **public/floating
+IP** if the portal assigns one automatically, or attach one manually if
+it's a separate step).
 
-## What this Terraform creates
+## 2. Lock down access with the portal's security groups / firewall rules
 
-- A private network + subnet (`cloud-lab-net`)
-- A router with an external gateway (so VMs can reach the internet for
-  `apt-get`/npm during provisioning)
-- Three security groups (app / db / cache), each opening only the ports
-  the *other* tiers need, plus SSH from your IP
-- Three VM instances (app, db, cache), each running the matching
-  `deploy/common/install-*.sh` script via `user_data` on first boot
-- One floating IP, attached to the app VM only (db/cache stay private)
+Whatever Cyber Frame Cloud calls this screen, you're creating the same
+three rule sets as any cloud (see [deploy/README.md](../README.md) for the
+cross-provider vocabulary):
 
-## Steps
+| VM | Allow inbound | From |
+|---|---|---|
+| app | TCP 22 | your IP only |
+| app | TCP 3000 | anywhere (0.0.0.0/0) — this is the public entry point |
+| db | TCP 22 | your IP only |
+| db | TCP 5432 | the app VM's private IP only |
+| cache | TCP 22 | your IP only |
+| cache | TCP 6379 | the app VM's private IP only |
 
-```bash
-cd deploy/acronis
-cp terraform.tfvars.example terraform.tfvars
-# edit terraform.tfvars: image name, flavor name, your SSH key name,
-# your IP for the SSH security-group rule, and the db/redis passwords
+Everything else inbound: deny. If the portal defaults to "allow all" for
+a new VM, tighten it before moving on — that's the whole point of having
+three separate VMs instead of one.
 
-terraform init
-terraform plan     # READ THIS before applying — confirms what will be created/billed
-terraform apply
-```
+## 3. Push the app to a git repo
 
-After apply, Terraform prints the app VM's floating IP. The app itself
-still needs its `.env` pointed at the db/cache VMs' private IPs (also
-printed as outputs) — the `user_data` scripts write a starter `.env`, but
-double-check it matches `deploy/../.env.example`.
+The install scripts `git clone` it. Push what's in this directory
+(`cloud-lab-app/`) to GitHub/GitLab/wherever — a public repo is simplest
+for a lab like this.
+
+## 4. Provision the db VM
 
 ```bash
-terraform output app_public_ip
-curl http://<app_public_ip>:3000/healthz
+ssh ubuntu@<db-vm-ip>
+sudo git clone <your-repo-url> /opt/cloud-lab-app
+cd /opt/cloud-lab-app
+sudo APP_TIER_CIDR=<app-vm-private-ip>/32 DB_PASSWORD='<pick-a-password>' \
+  bash deploy/common/install-db-vm.sh
 ```
+
+## 5. Provision the cache VM
+
+```bash
+ssh ubuntu@<cache-vm-ip>
+sudo git clone <your-repo-url> /opt/cloud-lab-app
+cd /opt/cloud-lab-app
+sudo PRIVATE_IP=<cache-vm-private-ip> REDIS_PASSWORD='<pick-a-password>' \
+  bash deploy/common/install-cache-vm.sh
+```
+
+## 6. Provision the app VM
+
+```bash
+ssh ubuntu@<app-vm-ip>
+sudo git clone <your-repo-url> /opt/cloud-lab-app
+cd /opt/cloud-lab-app
+sudo cp .env.example .env
+sudo nano .env   # set PGHOST=<db-vm-private-ip>, PGPASSWORD, REDIS_HOST=<cache-vm-private-ip>, REDIS_PASSWORD
+sudo GIT_REPO="" bash deploy/common/install-app-vm.sh   # dir already exists, so this just installs Node + the systemd unit
+```
+
+## 7. Verify
+
+```bash
+curl http://<app-vm-public-ip>:3000/healthz
+# {"app":"ok","db":"ok","cache":"ok"}
+```
+
+Open `http://<app-vm-public-ip>:3000` in a browser and post a message.
 
 ## Tear down
 
-```bash
-terraform destroy
-```
-
-Acronis bills IaaS by allocated compute/storage/floating-IP while running —
-destroy the stack when you're done experimenting, same as you would on any
-other cloud.
+Delete the three VMs from the portal when you're done — Cyber Frame Cloud
+bills for allocated compute/storage while they exist, same as any other
+cloud.

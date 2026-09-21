@@ -127,6 +127,117 @@ services would otherwise do for you:
   `.env` down to `chmod 600`, owned by the `www-data` user the app runs
   as, so at least other local users on the VM can't read it.
 
+## Point-to-site VPN (WireGuard on the firewall)
+
+Once OPNsense is the only way in and out, it's also the natural place to
+terminate a VPN: it already sees every packet, so nothing has to be
+re-routed to reach it. No extra VM is involved. WireGuard on OPNsense
+26.1 is a kernel module (`if_wg.ko`), not a daemon — it adds one virtual
+interface (`wg0`) to the firewall you already have, and no measurable
+load.
+
+What it buys over the SSH jump host: the app on `10.0.1.241:3000` and
+the OPNsense GUI on `https://10.0.1.250` become reachable from your
+laptop by private address, with no new port forwards and nothing newly
+exposed except UDP 51820 — which is silent to scanners, since WireGuard
+never replies to an unauthenticated packet.
+
+### Addressing
+
+The tunnel gets its own subnet — `10.10.0.0/24` here, firewall `.1`,
+client `.2/32` — deliberately **not** part of `10.0.1.0/24`. A client
+holding a `10.0.1.x` address would be ARPed for on the LAN segment by
+any VM replying to it, and it isn't on that wire, so the replies would
+be dropped and connections would hang. Pick any range that doesn't
+collide with the lab, the transit network, the DR site, or whatever
+commercial VPN you use day to day.
+
+**WireGuard assigns nothing.** The client address is written by hand in
+two places that must agree: `tunneladdress` on the peer (the firewall's
+permission) and `Address` in the client config (the client's claim). If
+they disagree the handshake still succeeds and every packet is then
+silently dropped — a confusing failure, because `wg show` looks healthy.
+
+### Firewall rules — the part that will waste your time
+
+Two rules are needed:
+
+1. **WAN**: allow `udp/51820` to the firewall. Straightforward.
+2. **Tunnel**: allow `10.10.0.0/24 -> 10.0.1.0/24`. **This must be a
+   floating rule.** `wg0` is not an assigned OPNsense interface, so a
+   rule bound to interface `wg` produces `#debug:Interface wg not found`
+   and is silently commented out of the generated ruleset — while the
+   GUI continues to display it as active. A floating rule emits
+   `pass in quick inet from ... to ...` with no interface clause, which
+   matches on `wg0` regardless of assignment.
+
+Verify with `pfctl -sr | grep 10.10.0`. If it isn't there it isn't
+loaded, whatever the GUI shows. `grep "debug:" /tmp/rules.debug` reveals
+what the generator rejected. This is the same class of silent failure as
+picking a named service instead of a literal port number.
+
+Rule ordering is fine even though OPNsense's `block drop in log inet
+all` appears earlier in the list: that rule is not `quick`, so a later
+`quick` pass rule still wins.
+
+### Persistence
+
+`plugins.inc.d/wireguard.inc` registers `'vpn' => ['wireguard_configure_do']`
+and `rc.bootup` calls `plugins_configure('vpn', true)`, gated only on
+`general/enabled == '1'`. The interface is therefore rebuilt at boot
+even if you created it by hand while setting up.
+
+### Client
+
+Generate a keypair locally; the private half never leaves your machine:
+
+```
+wg genkey | tee client.key | wg pubkey > client.pub
+```
+
+Register the **public** key on the firewall as a peer with
+`tunneladdress 10.10.0.2/32`. The client config is eight lines:
+
+```
+[Interface]
+PrivateKey = <contents of client.key>
+Address    = 10.10.0.2/32
+
+[Peer]
+PublicKey  = <the firewall's public key>
+Endpoint   = <floating IP>:51820
+AllowedIPs = 10.0.1.0/24, 10.10.0.0/24
+PersistentKeepalive = 25
+```
+
+`AllowedIPs` here is a split tunnel — only lab traffic uses the VPN and
+normal internet stays direct. Keep it narrow. For contrast, Acronis's DR
+OpenVPN pushes `route 10.0.0.0/8`, which claims the entire ten-space and
+collides with any commercial VPN using `10.x`; that collision is an
+unpleasant afternoon to diagnose, because the tunnel connects fine and
+only the routing is wrong.
+
+On macOS: `brew install wireguard-tools`, put the config in
+`/opt/homebrew/etc/wireguard/`, then `sudo wg-quick up cloud-lab`.
+
+Note there is no TCP fallback — WireGuard is UDP-only by design. On a
+network that blocks UDP or non-standard ports, this tunnel simply will
+not connect, and SSH on port 22 remains the way in.
+
+### Security groups still apply
+
+The VPN puts you on the network; it does **not** bypass Cyber Frame
+security groups. Over the tunnel your source address is `10.10.0.2`, so
+only rules admitting it will let you through. The app's `:3000` rule
+(`0.0.0.0/0`) works, and the OPNsense GUI works because the firewall VM
+has no security group attached — but `:22` on the app, `5432` on the db
+and `6379` on the cache stay blocked until you add `10.10.0.0/24` as an
+allowed source in the portal.
+
+Whether you should is a judgement call rather than an oversight:
+reaching Postgres directly from a laptop is convenient, and keeping it
+reachable only from the app tier is the more defensible posture.
+
 ## Tear down
 
 Delete the three VMs from the portal when you're done — Cyber Frame Cloud
